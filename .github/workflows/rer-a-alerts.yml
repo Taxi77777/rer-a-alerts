@@ -41,7 +41,7 @@ jobs:
         PRIM_API_KEY: ${{ secrets.PRIM_API_KEY }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: python main.py
+      run: python main.py --test
 
     - name: Sauvegarde de l'historique des alertes si modifié
       run: |
