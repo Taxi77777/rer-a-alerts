@@ -354,43 +354,41 @@ def calculate_disruption_hash(disruption):
 
 def format_alert_message(disruption, is_update=False):
     """
-    Formatte le message Telegram en Markdown strict selon les préférences de Rachid.
+    Formate le message Telegram de maniere claire et percutante.
+    Le message doit immediatement informer Rachid de la situation sur ses gares.
     """
-    stations = detect_impacted_stations(disruption['summary'], disruption['description'])
-    stations_str = "\n".join([f"• {station}" for station in stations])
-    
     start_str = format_datetime_paris(disruption['start_time'])
     end_str = format_datetime_paris(disruption['end_time'])
-    
-    title = disruption['summary'].strip()
-    if not title:
-        title = "Information Perturbation"
-        
-    info_text = disruption['description'].strip()
-    if not info_text:
-        info_text = title
-    elif len(info_text) > 400:
-        info_text = info_text[:397] + "..."
-        
-    # Échapper les champs contenant du texte dynamique pour éviter les crashs de parse_mode Markdown
+
+    # Titre court = resume de l'alerte
+    title = disruption['summary'].strip() or "Perturbation RER A"
+
+    # Texte complet = description detaillee
+    info_text = disruption['description'].strip() or title
+    if len(info_text) > 600:
+        info_text = info_text[:597] + "..."
+
+    # Echapper pour Markdown Telegram
     title_esc = escape_markdown(title)
     info_text_esc = escape_markdown(info_text)
-    stations_str_esc = escape_markdown(stations_str)
-    
-    # En-tête du message
+
+    # En-tete : MAJ ou Nouvelle alerte
     if is_update:
-        prefix = f"🔄 *Mise à jour : {title_esc}*"
+        header = "\u26a0\ufe0f *MISE A JOUR \u2014 RER A*"
     else:
-        prefix = f"🚨 *RER A - {title_esc}*"
-        
+        header = "\U0001f6a8\U0001f6a8 *ALERTE RER A \u2014 VOS GARES* \U0001f6a8\U0001f6a8"
+
     message = (
-        f"{prefix}\n\n"
-        f"📍 *Gares concernées :*\n"
-        f"{stations_str_esc}\n\n"
-        f"⏰ *Début :* {start_str}\n"
-        f"🕐 *Fin prévue :* {end_str}\n\n"
-        f"ℹ️ {info_text_esc}\n\n"
-        f"🔗 [ratp.fr/horaires/perturbations](https://www.ratp.fr/horaires/perturbations)"
+        f"{header}\n"
+        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+        f"\u26a0\ufe0f *{title_esc}*\n\n"
+        f"\U0001f4cb *Detail :*\n"
+        f"{info_text_esc}\n\n"
+        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        f"\u23f0 *Debut :* {start_str}\n"
+        f"\u2705 *Fin prevue :* {end_str}\n"
+        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        f"\U0001f517 https://www.ratp.fr/horaires/perturbations"
     )
     return message
 
