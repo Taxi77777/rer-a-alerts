@@ -10,7 +10,6 @@ import os
 import sys
 import json
 import time
-import argparse
 import hashlib
 from datetime import datetime
 import pytz
@@ -457,149 +456,16 @@ def purge_old_alerts(history, retention_hours=48):
         del history[key]
 
 
-def run_diagnostics(prim_key, tg_token, tg_chat_id):
-    """
-    Exécute le mode diagnostic (--test) pour s'assurer que les clés de configuration
-    sont correctes, et affiche l'état actuel des flux de données.
-    """
-    print("\n=================== BOT DIAGNOSTIC MODE ===================")
-    errors = 0
-    
-    # 1. Vérification des configurations environnementales
-    print("\n[1/4] Validation des variables d'environnement...")
-    for var_name, var_val in [("PRIM_API_KEY", prim_key), ("TELEGRAM_BOT_TOKEN", tg_token), ("TELEGRAM_CHAT_ID", tg_chat_id)]:
-        if not var_val:
-            print(f"❌ Erreur : La variable {var_name} est absente.")
-            errors += 1
-        else:
-            masked = var_val[:6] + "..." if len(var_val) > 6 else "***"
-            print(f"✅ Variable {var_name} configurée : {masked}")
-            
-    if errors > 0:
-        print("❌ Diagnostic arrêté : des variables d'environnement cruciales manquent.")
-        return False
-        
-    # 2. Test du bot Telegram (getMe)
-    print("\n[2/4] Test de connexion avec Telegram (getMe)...")
-    tg_me_url = f"https://api.telegram.org/bot{tg_token}/getMe"
-    try:
-        response = make_request_with_retry(tg_me_url, "GET", retries=2)
-        if response.status_code == 200:
-            bot_name = response.json().get("result", {}).get("first_name", "Inconnu")
-            print(f"✅ Connexion Telegram établie ! Nom du bot : {bot_name}")
-        else:
-            print(f"❌ Échec getMe. HTTP {response.status_code} : {response.text}")
-            errors += 1
-    except Exception as e:
-        print(f"❌ Exception lors du getMe Telegram : {e}")
-        errors += 1
-        
-    # 3. Requête PRIM general-message
-    print("\n[3/4] Interrogation de l'API PRIM (general-message)...")
-    prim_url = "https://prim.iledefrance-mobilites.fr/marketplace/general-message"
-    headers = {"apikey": prim_key}
-    params = {"LineRef": "STIF:Line::C01742:"}
-    disruptions = []
-    try:
-        response = make_request_with_retry(prim_url, "GET", headers=headers, params=params, retries=2)
-        if response.status_code == 200:
-            print("✅ Connexion à l'API PRIM réussie !")
-            data = response.json()
-            disruptions = extract_disruptions_from_json(data)
-            print(f"🔎 Nombre de perturbations totales détectées : {len(disruptions)}")
-        else:
-            print(f"❌ Échec API PRIM. HTTP {response.status_code} : {response.text}")
-            errors += 1
-    except Exception as e:
-        print(f"❌ Exception lors de la requête PRIM : {e}")
-        errors += 1
 
-    # 4. Envoi du dernier message RER A (simulé uniquement) au groupe Telegram
-    print("\n[4/4] Préparation et envoi d'un message de test simulé au groupe Telegram...")
-    
-    # En mode diagnostic, on utilise toujours une simulation pour ne pas envoyer
-    # de vraies alertes d'autres branches (Cergy, Maisons-Laffitte, etc.)
-    target_disruption = None
-    is_mock = True
-    
-    if disruptions:
-        # Chercher uniquement une perturbation pertinente pour les 4 gares de Rachid
-        relevant = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
-        if relevant:
-            target_disruption = relevant[0]
-            is_mock = False
-            print(f"📢 Perturbation active détectée sur vos gares : {target_disruption['id']}")
-        else:
-            print("📢 Aucune alerte sur vos gares (Torcy/Bussy/Val d'Europe/Chessy). Simulation d'un message de test.")
-    else:
-        print("📢 Aucun trafic perturbé sur le réseau. Simulation d'un message de test.")
-    
-    # Si pas d'alerte pertinente trouvée (ni réelle sur nos gares, ni réseau vide),
-    # on génère toujours une simulation propre sur Torcy/Bussy
-    if target_disruption is None:
-        from datetime import timedelta
-        now_paris = datetime.now(PARIS_TZ)
-        target_disruption = {
-            "id": "SIMULATED-TEST-A4",
-            "summary": "Message de Test - Trafic ralenti",
-            "description": "Ceci est un message de test automatique. Incident technique sur les installations de signalisation à Bussy-Saint-Georges. Le trafic est ralenti sur la branche Marne-la-Vallée entre Torcy et Chessy.",
-            "start_time": now_paris.isoformat(),
-            "end_time": (now_paris + timedelta(hours=2)).isoformat(),
-            "creation_time": now_paris.isoformat()
-        }
-        is_mock = True
-        print("📢 Simulation générée : Incident fictif à Bussy-Saint-Georges (message de test uniquement).")
-
-    # Formater et envoyer l'alerte
-    try:
-        msg_text = format_alert_message(target_disruption, is_update=False)
-        if is_mock:
-            msg_text = "🧪 *[MESSAGE DE TEST]*\n" + msg_text
-        else:
-            msg_text = "📡 *[MESSAGE DE TEST RÉEL]*\n" + msg_text
-            
-        tg_send_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
-        payload = {
-            "chat_id": tg_chat_id,
-            "text": msg_text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-        
-        response = make_request_with_retry(tg_send_url, "POST", json_data=payload, retries=2)
-        if response.status_code == 200:
-            print("✅ Message RER A de test envoyé avec succès à Telegram !")
-        else:
-            print(f"❌ Échec de l'envoi du message RER A. HTTP {response.status_code} : {response.text}")
-            errors += 1
-    except Exception as e:
-        print(f"❌ Exception lors de l'envoi du message RER A : {e}")
-        errors += 1
-        
-    print("\n=======================================================")
-    if errors == 0:
-        print("🎉 DIAGNOSTIC REUSSI : Le bot RER A est 100% opérationnel !")
-        return True
-    else:
-        print(f"❌ DIAGNOSTIC ECHOUE : {errors} erreur(s) détectée(s).")
-        return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bot RER A - Alertes de perturbation Telegram")
-    parser.add_argument('--test', action='store_true', help="Déclenche le mode diagnostic de validation")
-    args = parser.parse_args()
-    
     # Chargement des identifiants et clés d'accès
     prim_key = os.environ.get("PRIM_API_KEY")
     tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    
-    if args.test:
-        success = run_diagnostics(prim_key, tg_token, tg_chat_id)
-        sys.exit(0 if success else 1)
-        
-    # Vérification des credentials en mode normal
+
+    # Vérification des credentials
     if not all([prim_key, tg_token, tg_chat_id]):
         print("❌ Configuration manquante. Renseignez PRIM_API_KEY, TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID.")
         sys.exit(1)
