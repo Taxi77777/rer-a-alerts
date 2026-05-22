@@ -168,9 +168,28 @@ def detect_impacted_stations(summary, description):
     if stations:
         return stations
         
-    # Si aucune gare n'est citée mais que la branche Marne-la-Vallée est mentionnée
+    # Si aucune gare principale n'est citée, chercher les autres gares de la branche A4
+    if any(kw in text for kw in ['noisy', 'noisiel', 'lognes', 'neuilly-plaisance', 'bry-sur-marne', 'fontenay']):
+        stations.append("Branche Marne-la-Vallée (Noisy / Lognes / Fontenay...)")
+        return stations
+        
+    # Si la branche Marne-la-Vallée est mentionnée globalement
     if any(kw in text for kw in ['a4', 'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 'mlv']):
         return ["Branche Marne-la-Vallée (toutes les gares)"]
+        
+    # Détection des autres branches ou gares spécifiques
+    if any(kw in text for kw in ['cergy', 'poissy', 'maisons-laffitte', 'sartrouville', 'conflans', 'achères']):
+        return ["Branche Cergy / Poissy"]
+    if 'nation' in text:
+        return ["Nation"]
+    if 'étoile' in text or 'etoile' in text:
+        return ["Charles de Gaulle - Étoile"]
+    if 'auber' in text:
+        return ["Auber"]
+    if 'châtelet' in text or 'chatelet' in text:
+        return ["Châtelet - Les Halles"]
+    if 'gare de lyon' in text:
+        return ["Gare de Lyon"]
         
     # Par défaut, c'est global à l'ensemble du RER A
     return ["Ensemble de la ligne RER A"]
@@ -234,43 +253,82 @@ def extract_disruptions_from_json(data):
                 continue
                 
             pt_situation = content.get("PtSituationElement")
-            if not isinstance(pt_situation, dict):
-                continue
+            if isinstance(pt_situation, dict):
+                # Clés uniques de situation
+                situation_num = pt_situation.get("SituationNumber", item_id)
+                creation_time = pt_situation.get("CreationTime", recorded_at)
                 
-            # Clés uniques de situation
-            situation_num = pt_situation.get("SituationNumber", item_id)
-            creation_time = pt_situation.get("CreationTime", recorded_at)
-            
-            # Période de validité
-            validity_periods = pt_situation.get("ValidityPeriod", [])
-            start_time = None
-            end_time = None
-            if isinstance(validity_periods, list) and len(validity_periods) > 0:
-                first_period = validity_periods[0]
-                if isinstance(first_period, dict):
-                    start_time = first_period.get("StartTime")
-                    end_time = first_period.get("EndTime")
-            elif isinstance(validity_periods, dict):
-                start_time = validity_periods.get("StartTime")
-                end_time = validity_periods.get("EndTime")
+                # Période de validité
+                validity_periods = pt_situation.get("ValidityPeriod", [])
+                start_time = None
+                end_time = None
+                if isinstance(validity_periods, list) and len(validity_periods) > 0:
+                    first_period = validity_periods[0]
+                    if isinstance(first_period, dict):
+                        start_time = first_period.get("StartTime")
+                        end_time = first_period.get("EndTime")
+                elif isinstance(validity_periods, dict):
+                    start_time = validity_periods.get("StartTime")
+                    end_time = validity_periods.get("EndTime")
+                    
+                if not end_time:
+                    end_time = valid_until
+                    
+                summary = extract_text(pt_situation.get("Summary"))
+                description = extract_text(pt_situation.get("Description"))
                 
-            if not end_time:
-                end_time = valid_until
+                if not summary and not description:
+                    continue
+                    
+                disruptions.append({
+                    "id": situation_num,
+                    "summary": summary,
+                    "description": description,
+                    "start_time": start_time or creation_time,
+                    "end_time": end_time,
+                    "creation_time": creation_time
+                })
+            elif "Message" in content:
+                messages = content.get("Message", [])
+                short_msg = ""
+                long_msg = ""
+                for m in messages:
+                    if not isinstance(m, dict):
+                        continue
+                    m_type = m.get("MessageType")
+                    m_text_dict = m.get("MessageText")
+                    m_text = ""
+                    if isinstance(m_text_dict, dict):
+                        m_text = m_text_dict.get("value", "")
+                    elif isinstance(m_text_dict, str):
+                        m_text = m_text_dict
+                        
+                    if m_type == "SHORT_MESSAGE":
+                        short_msg = m_text
+                    elif m_type == "TEXT_ONLY":
+                        long_msg = m_text
                 
-            summary = extract_text(pt_situation.get("Summary"))
-            description = extract_text(pt_situation.get("Description"))
-            
-            if not summary and not description:
-                continue
+                summary = short_msg or long_msg[:100]
+                description = long_msg or short_msg
                 
-            disruptions.append({
-                "id": situation_num,
-                "summary": summary,
-                "description": description,
-                "start_time": start_time or creation_time,
-                "end_time": end_time,
-                "creation_time": creation_time
-            })
+                if not summary and not description:
+                    continue
+                    
+                # Extraire l'ID du message
+                info_msg_id = msg.get("InfoMessageIdentifier")
+                if isinstance(info_msg_id, dict):
+                    situation_num = info_msg_id.get("value", item_id)
+                else:
+                    situation_num = str(info_msg_id) if info_msg_id else item_id
+                    
+                disruptions.append({
+                    "id": situation_num,
+                    "summary": summary,
+                    "description": description,
+                    "start_time": recorded_at,
+                    "end_time": valid_until,
+                    "creation_time": recorded_at
+                })
             
     return disruptions
 
