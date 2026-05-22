@@ -425,28 +425,12 @@ def run_diagnostics(prim_key, tg_token, tg_chat_id):
         print(f"❌ Exception lors du getMe Telegram : {e}")
         errors += 1
         
-    # 3. Envoi du message test Telegram
-    print("\n[3/4] Envoi du message de test au groupe Telegram...")
-    now_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y à %H:%M:%S")
-    test_msg = f"✅ Bot RER A opérationnel le {now_str}"
-    tg_send_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
-    payload = {"chat_id": tg_chat_id, "text": test_msg}
-    try:
-        response = make_request_with_retry(tg_send_url, "POST", json_data=payload, retries=2)
-        if response.status_code == 200:
-            print("✅ Message de test Telegram envoyé avec succès !")
-        else:
-            print(f"❌ Échec de l'envoi. HTTP {response.status_code} : {response.text}")
-            errors += 1
-    except Exception as e:
-        print(f"❌ Exception lors de l'envoi Telegram : {e}")
-        errors += 1
-        
-    # 4. Requête PRIM general-message
-    print("\n[4/4] Interrogation de l'API PRIM (general-message)...")
+    # 3. Requête PRIM general-message
+    print("\n[3/4] Interrogation de l'API PRIM (general-message)...")
     prim_url = "https://prim.iledefrance-mobilites.fr/marketplace/general-message"
     headers = {"apikey": prim_key}
     params = {"LineRef": "STIF:Line::C01742:"}
+    disruptions = []
     try:
         response = make_request_with_retry(prim_url, "GET", headers=headers, params=params, retries=2)
         if response.status_code == 200:
@@ -454,26 +438,69 @@ def run_diagnostics(prim_key, tg_token, tg_chat_id):
             data = response.json()
             disruptions = extract_disruptions_from_json(data)
             print(f"🔎 Nombre de perturbations totales détectées : {len(disruptions)}")
-            
-            relevant = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
-            print(f"🔎 Nombre de perturbations filtrées (branche A4 / globales) : {len(relevant)}")
-            
-            if relevant:
-                print("\n--- PERTURBATIONS ACTUELLES (non envoyées, pour visualisation) ---")
-                for idx, d in enumerate(relevant, 1):
-                    stations = detect_impacted_stations(d['summary'], d['description'])
-                    print(f"\n[Perturbation #{idx}] ID: {d['id']}")
-                    print(f"Titre : {d['summary']}")
-                    print(f"Début : {format_datetime_paris(d['start_time'])} | Fin : {format_datetime_paris(d['end_time'])}")
-                    print(f"Gares impactées : {', '.join(stations)}")
-                    print(f"Détails : {d['description'][:150]}...")
-            else:
-                print("ℹ️ Aucune alerte active ne concerne la branche Marne-la-Vallée ou la ligne entière à cet instant.")
         else:
             print(f"❌ Échec API PRIM. HTTP {response.status_code} : {response.text}")
             errors += 1
     except Exception as e:
         print(f"❌ Exception lors de la requête PRIM : {e}")
+        errors += 1
+
+    # 4. Envoi du dernier message RER A (réel ou simulé) au groupe Telegram
+    print("\n[4/4] Préparation et envoi du dernier message RER A au groupe Telegram...")
+    
+    # Trouver une perturbation pertinente ou prendre la toute dernière perturbation du RER A
+    target_disruption = None
+    is_mock = False
+    
+    if disruptions:
+        # Essayer d'abord d'en trouver une pertinente pour la branche A4
+        relevant = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
+        if relevant:
+            target_disruption = relevant[0]
+            print(f"📢 Utilisation d'une perturbation active de la branche A4 : {target_disruption['id']}")
+        else:
+            # Sinon prendre la première perturbation générale RER A
+            target_disruption = disruptions[0]
+            print(f"📢 Aucune alerte sur A4. Utilisation de la dernière alerte générale RER A : {target_disruption['id']}")
+    else:
+        # Si aucune perturbation du tout, simuler une perturbation test
+        from datetime import timedelta
+        now_paris = datetime.now(PARIS_TZ)
+        target_disruption = {
+            "id": "SIMULATED-TEST-A4",
+            "summary": "Message de Test - Trafic ralenti",
+            "description": "Ceci est un message de test automatique. Incident technique sur les installations de signalisation à Bussy-Saint-Georges. Le trafic est ralenti sur la branche Marne-la-Vallée.",
+            "start_time": now_paris.isoformat(),
+            "end_time": (now_paris + timedelta(hours=2)).isoformat(),
+            "creation_time": now_paris.isoformat()
+        }
+        is_mock = True
+        print("📢 Aucun trafic perturbé détecté sur le RER A. Génération d'une fausse perturbation pour tester le format d'envoi.")
+
+    # Formater et envoyer l'alerte
+    try:
+        msg_text = format_alert_message(target_disruption, is_update=False)
+        if is_mock:
+            msg_text = "🧪 *[MESSAGE DE TEST]*\n" + msg_text
+        else:
+            msg_text = "📡 *[MESSAGE DE TEST RÉEL]*\n" + msg_text
+            
+        tg_send_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+        payload = {
+            "chat_id": tg_chat_id,
+            "text": msg_text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        
+        response = make_request_with_retry(tg_send_url, "POST", json_data=payload, retries=2)
+        if response.status_code == 200:
+            print("✅ Message RER A de test envoyé avec succès à Telegram !")
+        else:
+            print(f"❌ Échec de l'envoi du message RER A. HTTP {response.status_code} : {response.text}")
+            errors += 1
+    except Exception as e:
+        print(f"❌ Exception lors de l'envoi du message RER A : {e}")
         errors += 1
         
     print("\n=======================================================")
