@@ -514,37 +514,41 @@ def run_diagnostics(prim_key, tg_token, tg_chat_id):
         print(f"❌ Exception lors de la requête PRIM : {e}")
         errors += 1
 
-    # 4. Envoi du dernier message RER A (réel ou simulé) au groupe Telegram
-    print("\n[4/4] Préparation et envoi du dernier message RER A au groupe Telegram...")
+    # 4. Envoi du dernier message RER A (simulé uniquement) au groupe Telegram
+    print("\n[4/4] Préparation et envoi d'un message de test simulé au groupe Telegram...")
     
-    # Trouver une perturbation pertinente ou prendre la toute dernière perturbation du RER A
+    # En mode diagnostic, on utilise toujours une simulation pour ne pas envoyer
+    # de vraies alertes d'autres branches (Cergy, Maisons-Laffitte, etc.)
     target_disruption = None
-    is_mock = False
+    is_mock = True
     
     if disruptions:
-        # Essayer d'abord d'en trouver une pertinente pour la branche A4
+        # Chercher uniquement une perturbation pertinente pour les 4 gares de Rachid
         relevant = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
         if relevant:
             target_disruption = relevant[0]
-            print(f"📢 Utilisation d'une perturbation active de la branche A4 : {target_disruption['id']}")
+            is_mock = False
+            print(f"📢 Perturbation active détectée sur vos gares : {target_disruption['id']}")
         else:
-            # Sinon prendre la première perturbation générale RER A
-            target_disruption = disruptions[0]
-            print(f"📢 Aucune alerte sur A4. Utilisation de la dernière alerte générale RER A : {target_disruption['id']}")
+            print("📢 Aucune alerte sur vos gares (Torcy/Bussy/Val d'Europe/Chessy). Simulation d'un message de test.")
     else:
-        # Si aucune perturbation du tout, simuler une perturbation test
+        print("📢 Aucun trafic perturbé sur le réseau. Simulation d'un message de test.")
+    
+    # Si pas d'alerte pertinente trouvée (ni réelle sur nos gares, ni réseau vide),
+    # on génère toujours une simulation propre sur Torcy/Bussy
+    if target_disruption is None:
         from datetime import timedelta
         now_paris = datetime.now(PARIS_TZ)
         target_disruption = {
             "id": "SIMULATED-TEST-A4",
             "summary": "Message de Test - Trafic ralenti",
-            "description": "Ceci est un message de test automatique. Incident technique sur les installations de signalisation à Bussy-Saint-Georges. Le trafic est ralenti sur la branche Marne-la-Vallée.",
+            "description": "Ceci est un message de test automatique. Incident technique sur les installations de signalisation à Bussy-Saint-Georges. Le trafic est ralenti sur la branche Marne-la-Vallée entre Torcy et Chessy.",
             "start_time": now_paris.isoformat(),
             "end_time": (now_paris + timedelta(hours=2)).isoformat(),
             "creation_time": now_paris.isoformat()
         }
         is_mock = True
-        print("📢 Aucun trafic perturbé détecté sur le RER A. Génération d'une fausse perturbation pour tester le format d'envoi.")
+        print("📢 Simulation générée : Incident fictif à Bussy-Saint-Georges (message de test uniquement).")
 
     # Formater et envoyer l'alerte
     try:
