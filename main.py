@@ -27,11 +27,10 @@ if sys.platform.startswith('win'):
 # Fuseau horaire Paris obligatoire pour tous les calculs de dates et d'envoi
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
-# Mots-clés définissant notre branche A4 et ses gares
+# Mots-clés définissant uniquement les 4 gares de Rachid
 KEYWORDS_A4 = [
     'torcy', 'bussy', 'val d\'europe', 'chessy', 
-    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 
-    'a4', 'mlv'
+    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée'
 ]
 
 # Mots-clés des autres branches du RER A (utilisés pour exclure les perturbations locales)
@@ -131,22 +130,34 @@ def make_request_with_retry(url, method="GET", headers=None, params=None, json_d
 def is_alert_relevant(summary, description):
     """
     Logique de filtrage des alertes du RER A.
-    - Conserve si mots-clés A4/Gares présents.
-    - Exclut si uniquement d'autres branches sont mentionnées.
-    - Conserve par défaut (ex: perturbation générale sur toute la ligne).
+    - Conserve si l'une des 4 gares de Rachid (Torcy, Bussy, Val d'Europe, Chessy) est mentionnée.
+    - Conserve si c'est une perturbation globale sur toute la ligne A.
+    - Exclut si c'est uniquement d'autres gares/branches (comme Noisy, Cergy, Boissy).
     """
     text = (summary + " " + description).lower()
     
-    # 1. Si le texte contient nos gares ou notre branche, c'est forcément pertinent
+    # 1. Si le texte contient l'une de nos 4 gares, c'est pertinent
     if any(kw in text for kw in KEYWORDS_A4):
         return True
         
-    # 2. Si le texte mentionne d'autres branches à l'exclusion de la nôtre, ce n'est pas pertinent
-    if any(kw in text for kw in KEYWORDS_EXCLUDE):
-        return False
+    # 2. Si le texte mentionne d'autres branches ou d'autres gares de la ligne sans nos gares,
+    # on filtre. Mais on garde les messages globaux sur l'ensemble de la ligne.
+    text_clean = text.replace("malignea.fr", "").replace("ratp.fr", "")
+    
+    # Mots-clés pour perturbations globales sur toute la ligne
+    global_keywords = [
+        'ensemble de la ligne', 
+        'toute la ligne', 
+        'toutes les gares',
+        'ligne a est interrompu',
+        'ligne a est perturbe',
+        'ligne a est ralenti'
+    ]
+    if any(kw in text_clean for kw in global_keywords):
+        return True
         
-    # 3. Par défaut, si l'alerte n'est pas ciblée sur une autre branche (ex: "perturbation globale ligne A"), on la garde
-    return True
+    # Par défaut, exclure
+    return False
 
 
 def detect_impacted_stations(summary, description):
