@@ -3,22 +3,22 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environnements virtuels de developpement local
+# Environnements virtuels de développement local
 .venv/
 venv/
 ENV/
 env/
 
-# Fichiers de configuration locale
+# Fichiers de configuration locale (contenant des clés de test)
 .env
 .env.local
 
-# Fichiers systemes OS
+# Fichiers systèmes OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Fichiers d editeurs de code
+# Fichiers d'éditeurs de code
 .idea/
 .vscode/
 *.suo

@@ -48,5 +48,5 @@ jobs:
           echo "Aucune nouvelle alerte ou mise à jour à committer."
         else
           git commit -m "chore: mise à jour automatique de l'historique des alertes [skip ci]"
-          git push origin HEAD
+          git push origin HEAD:${{ github.ref_name }}
         fi
