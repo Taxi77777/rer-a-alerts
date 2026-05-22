@@ -1,6 +1,11 @@
 name: Suivi Trafic RER A - Alertes Telegram
 
 on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'alerts_history.json'
   schedule:
     # S'exécute toutes les 5 minutes, 24h/24, 7j/7
     - cron: '*/5 * * * *'
