@@ -1,0 +1,28 @@
+# Fichiers de cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnements virtuels de developpement local
+.venv/
+venv/
+ENV/
+env/
+
+# Fichiers de configuration locale
+.env
+.env.local
+
+# Fichiers systemes OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Fichiers d editeurs de code
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
