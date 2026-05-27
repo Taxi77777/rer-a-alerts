@@ -13,5 +13,10 @@
     "last_seen": "2026-05-26T23:17:57.204574+02:00",
     "hash": "374c7c009ace21f31cfe829a0e8cadb6748b0a6b3872383c57033c1f521aab42",
     "active": false
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.5949967990982431971:LOC": {
+    "last_seen": "2026-05-27T18:56:57.018054+02:00",
+    "hash": "ab4d967730903712ee522e6747487cf442d258758bc8a705cecaa7d76d55a520",
+    "active": true
   }
 }
