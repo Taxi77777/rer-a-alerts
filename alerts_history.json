@@ -20,8 +20,13 @@
     "active": false
   },
   "RATP-SIV:InfoMessage::MSG.IVC.9048956242643820863:LOC": {
-    "last_seen": "2026-06-23T07:54:25.655659+02:00",
-    "hash": "aece9dad3b4048552e508bdca55ba34c38f360e46df54975f33a8df6d741f1e7",
+    "last_seen": "2026-06-23T10:59:07.850141+02:00",
+    "hash": "bfab66008cf9c449ae5db8afd48be7d507a22d6a8a10b88be50c685eca095881",
+    "active": true
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.649648129926642980:LOC": {
+    "last_seen": "2026-06-23T10:59:07.850141+02:00",
+    "hash": "e4fc4975cfd7ebd26e1174d3f375838434378da15aaf552eeaae94dc33934690",
     "active": true
   }
 }
