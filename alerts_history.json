@@ -1,9 +1,4 @@
 {
-  "RATP-SIV:InfoMessage::MSG.IVC.8945646615241855878:LOC": {
-    "last_seen": "2026-06-22T09:37:17.800418+02:00",
-    "hash": "345e975c00bd4bf6ad8956b06b8a778b83079b23b66e174ab83e52344ffe1c7c",
-    "active": false
-  },
   "RATP-SIV:InfoMessage::MSG.IVC.9048956242643820863:LOC": {
     "last_seen": "2026-06-23T10:59:07.850141+02:00",
     "hash": "bfab66008cf9c449ae5db8afd48be7d507a22d6a8a10b88be50c685eca095881",
