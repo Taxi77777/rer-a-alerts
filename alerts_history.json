@@ -1,9 +1,4 @@
 {
-  "RATP-SIV:InfoMessage::MSG.IVC.982625439090272875:LOC": {
-    "last_seen": "2026-06-23T19:23:16.236469+02:00",
-    "hash": "dbc73d808aa345a64270f09c8043a0a5b3745ed8f31c4427098f9422b850bef7",
-    "active": false
-  },
   "RATP-SIV:InfoMessage::MSG.IVC.2968208797362726954:LOC": {
     "last_seen": "2026-06-23T23:09:22.459234+02:00",
     "hash": "71756ce89ff00f93ffd6f8d88a802d8844eeaddafc774229ae3bc81ea06eb19f",
@@ -32,6 +27,6 @@
   "RATP-SIV:InfoMessage::MSG.IVC.9029561419754433261:LOC": {
     "last_seen": "2026-06-25T18:04:16.119809+02:00",
     "hash": "e4d9282b47b5ad0314c9c5826d31242bc8d2c2b5833a3f8ea9360b2d9bd9cb14",
-    "active": true
+    "active": false
   }
 }
