@@ -15,13 +15,13 @@
     "active": false
   },
   "RATP-SIV:InfoMessage::MSG.IVC.1597551093496667988:LOC": {
-    "last_seen": "2026-06-30T20:06:26.491884+02:00",
+    "last_seen": "2026-06-30T22:13:58.742886+02:00",
     "hash": "d44f8aba74e4122756032470c3c05c6089abdca4215a5b7dfa4587fdedc1850a",
     "active": true
   },
   "RATP-SIV:InfoMessage::MSG.IVC.6718860701178059285:LOC": {
     "last_seen": "2026-06-30T20:06:26.491884+02:00",
     "hash": "d64c06a5110aeaa271d3d08b298508e5bf6eb2bbfa9440948685d6f16e00178a",
-    "active": true
+    "active": false
   }
 }
