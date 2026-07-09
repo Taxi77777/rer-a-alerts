@@ -1,9 +1,4 @@
 {
-  "RATP-SIV:InfoMessage::MSG.IVC.5917995746374948761:LOC": {
-    "last_seen": "2026-07-07T09:51:53.227388+02:00",
-    "hash": "7621b8ab9fe0fa8e2b33f3ad768330e94f80650a3a2e43fd982bf3718793e251",
-    "active": false
-  },
   "RATP-SIV:InfoMessage::MSG.IVC.4689782346155171302:LOC": {
     "last_seen": "2026-07-07T12:41:02.129575+02:00",
     "hash": "992c4ccfe7756b6c1fdbaeb665d7a6b2d7965e738b1e0555be553315034f5e05",
@@ -20,13 +15,13 @@
     "active": false
   },
   "RATP-SIV:InfoMessage::MSG.IVC.5269989748859910376:LOC": {
-    "last_seen": "2026-07-09T07:12:03.777307+02:00",
-    "hash": "0d57fbdfe868637d2f8841fb4f9afea054e6d44c057b99ddd5d9d66b77406761",
+    "last_seen": "2026-07-09T10:47:11.990023+02:00",
+    "hash": "b6106545677ae9521d9a88c3a2381f1e50845096197e5fba830fb7daa817dfba",
     "active": true
   },
   "RATP-SIV:InfoMessage::MSG.IVC.167708087647391314:LOC": {
     "last_seen": "2026-07-09T07:12:03.777307+02:00",
     "hash": "b43a93f66b5417ffc4bb125b66fb09f5a5dd3fb8cdf88fcf04c092419fcf066b",
-    "active": true
+    "active": false
   }
 }
