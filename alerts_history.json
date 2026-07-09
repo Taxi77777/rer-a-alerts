@@ -18,5 +18,15 @@
     "last_seen": "2026-07-08T01:17:22.859573+02:00",
     "hash": "6a8c66d13a5dfec600151044bbf5955bc0cb950c68f6ccfc1dfdae7f3270f316",
     "active": false
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.5269989748859910376:LOC": {
+    "last_seen": "2026-07-09T07:12:03.777307+02:00",
+    "hash": "0d57fbdfe868637d2f8841fb4f9afea054e6d44c057b99ddd5d9d66b77406761",
+    "active": true
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.167708087647391314:LOC": {
+    "last_seen": "2026-07-09T07:12:03.777307+02:00",
+    "hash": "b43a93f66b5417ffc4bb125b66fb09f5a5dd3fb8cdf88fcf04c092419fcf066b",
+    "active": true
   }
 }
