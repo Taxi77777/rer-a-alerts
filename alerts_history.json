@@ -12,6 +12,6 @@
   "RATP-SIV:InfoMessage::MSG.IVC.836741175857159379:LOC": {
     "last_seen": "2026-07-19T19:34:26.706561+02:00",
     "hash": "faf237e19522f692011cab01412ed421e792016a45078b37be4ebc91a6785b29",
-    "active": true
+    "active": false
   }
 }
