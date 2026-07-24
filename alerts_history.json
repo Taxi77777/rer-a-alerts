@@ -8,5 +8,10 @@
     "last_seen": "2026-07-24T00:16:52.642962+02:00",
     "hash": "d14384541b565d56121575dd55ed4c157aafcb2945c7d8e756f7061979aa3997",
     "active": false
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.5245208603239529566:LOC": {
+    "last_seen": "2026-07-24T17:41:11.456603+02:00",
+    "hash": "ccde88e80f87557d690cf8bed37900404e8a460166ccd4c533be4a1c3f734b05",
+    "active": true
   }
 }
