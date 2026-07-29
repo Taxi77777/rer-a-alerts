@@ -1,0 +1,98 @@
+name: TEST - Envoi message Telegram
+
+# Workflow manuel uniquement. Ne tourne jamais tout seul.
+# Sert a verifier que la chaine complete fonctionne :
+#   secrets GitHub -> main.py -> formatage du message -> groupe Telegram
+# Il reutilise les vraies fonctions de main.py, donc ce que tu recois
+# est exactement ce que tu recevrais lors d'une vraie interruption.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-telegram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Recuperation du depot
+        uses: actions/checkout@v4
+
+      - name: Configuration de Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installation des dependances
+        run: pip install -r requirements.txt
+
+      - name: Envoi du message de test
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PYCODE'
+          import os
+          from datetime import datetime, timedelta
+          import pytz
+          import main
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+          if not token or not chat_id:
+              print("❌ Secrets TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manquants.")
+              raise SystemExit(1)
+
+          now = datetime.now(pytz.utc)
+
+          # Fausse perturbation, formatee par le vrai code de production
+          fake = {
+              "summary": "Trafic interrompu entre Noisy-le-Grand - Mont d'Est et Chessy",
+              "description": (
+                  "Ceci est un message de TEST envoye manuellement. "
+                  "En raison d'un incident technique, le trafic est interrompu "
+                  "entre Noisy-le-Grand - Mont d'Est et Chessy - Marne-la-Vallee. "
+                  "Aucun train ne circule sur cette section."
+              ),
+              "start_time": now.isoformat(),
+              "end_time": (now + timedelta(hours=1)).isoformat(),
+              "creation_time": now.isoformat(),
+          }
+
+          # 1. Verification des filtres sur cet exemple
+          geo = main.is_alert_relevant(fake["summary"], fake["description"])
+          sev = main.classify_severity(fake["summary"], fake["description"])
+          gares = main.detect_impacted_stations(fake["summary"], fake["description"])
+          fenetre = main.is_in_sending_window()
+
+          print(f"Filtre geographique : {geo}")
+          print(f"Gravite detectee    : {sev}")
+          print(f"Gares detectees     : {gares}")
+          print(f"Fenetre d'envoi     : {fenetre} (False = mode nuit 1h-5h)")
+
+          # 2. Formatage avec la vraie fonction de production
+          corps = main.format_alert_message(fake, kind="stop")
+
+          entete = (
+              "\U0001f9ea *MESSAGE DE TEST — CECI N'EST PAS UNE VRAIE ALERTE* \U0001f9ea\n"
+              "Envoi manuel pour verifier le bon fonctionnement du bot.\n"
+              "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+          )
+
+          pied = (
+              "\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+              "✅ Si tu lis ce message, la chaine complete fonctionne :\n"
+              "cles PRIM/Telegram, droits admin du bot, formatage et envoi.\n"
+              "\U0001f552 Surveillance active : 1 scan toutes les 60 secondes."
+          )
+
+          # 3. Envoi reel
+          ok = main.send_telegram(token, chat_id, entete + corps + pied)
+
+          if ok:
+              print("✅ Message de test envoye avec succes sur Telegram.")
+          else:
+              print("❌ Echec de l'envoi. Verifie que le bot est bien ADMINISTRATEUR du groupe.")
+              raise SystemExit(1)
+          PYCODE
