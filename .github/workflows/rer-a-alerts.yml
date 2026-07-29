@@ -1,5 +1,24 @@
 name: Suivi Trafic RER A - Alertes Telegram
 
+# ---------------------------------------------------------------------------
+# POURQUOI CE FICHIER A CHANGE
+#
+# Le cron de GitHub Actions n'est PAS fiable : GitHub met les taches planifiees
+# dans une file d'attente "best effort" et les etrangle fortement.
+# Constat reel sur ce depot : un cron '*/5' ne se declenchait en pratique que
+# toutes les ~2 heures. Passer a '*/1' n'aurait rien change.
+#
+# Solution : au lieu de demander a GitHub de lancer 1 run par minute, on lance
+# UN SEUL run qui vit ~5h40 et qui interroge l'API PRIM toutes les 60 secondes
+# depuis l'interieur du job. Le cron ne sert plus qu'a relancer la boucle
+# quand elle se termine.
+#
+# ATTENTION : cela consomme des minutes Actions en continu.
+# -> Le depot DOIT etre PUBLIC (minutes gratuites illimitees).
+#    Sur un depot prive, le quota gratuit est de 2 000 min/mois et serait
+#    epuise en ~1,5 jour.
+# ---------------------------------------------------------------------------
+
 on:
   push:
     branches:
@@ -7,51 +26,76 @@ on:
     paths-ignore:
       - 'alerts_history.json'
   schedule:
-    # S'exécute toutes les 5 minutes, 24h/24, 7j/7
+    # Relance la boucle des qu'un creneau se libere.
+    # Grace a "concurrency" ci-dessous, un seul run tourne a la fois et le
+    # suivant demarre immediatement a la fin du precedent.
     - cron: '*/5 * * * *'
   workflow_dispatch:
-    # Permet de lancer le script manuellement depuis l'interface GitHub
 
 permissions:
-  contents: write  # Requis pour permettre à GitHub Actions de sauvegarder alerts_history.json
+  contents: write  # Requis pour sauvegarder alerts_history.json
+
+# Un seul run a la fois. Les runs planifies pendant la boucle attendent en
+# file d'attente et prennent le relais des que la boucle se termine.
+concurrency:
+  group: rer-a-alerts
+  cancel-in-progress: false
 
 jobs:
   run-alerts:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 350
+
     steps:
-    - name: Récupération du dépôt de code
-      uses: actions/checkout@v4
-      with:
-        persist-credentials: true
+      - name: Recuperation du depot de code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
-    - name: Configuration de Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
+      - name: Configuration de Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: Installation des dépendances Python
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Installation des dependances Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Exécution du script de détection des perturbations
-      env:
-        PRIM_API_KEY: ${{ secrets.PRIM_API_KEY }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: python main.py
+      - name: Configuration Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-    - name: Sauvegarde de l'historique des alertes si modifié
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add alerts_history.json
-        # Vérifier si alerts_history.json a été modifié
-        if git diff-index --quiet HEAD --; then
-          echo "Aucune nouvelle alerte ou mise à jour à committer."
-        else
-          git commit -m "chore: mise à jour automatique de l'historique des alertes [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
-        fi
+      - name: Boucle de surveillance (scan toutes les 60 secondes)
+        env:
+          PRIM_API_KEY: ${{ secrets.PRIM_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set +e
+          # Duree totale de la boucle : 5h40 (20400 s), sous la limite de 6h d'un job.
+          DUREE=20400
+          INTERVALLE=60
+          DEBUT=$SECONDS
+          CYCLE=0
+
+          while [ $((SECONDS - DEBUT)) -lt $DUREE ]; do
+            CYCLE=$((CYCLE + 1))
+            echo "──────── Scan #$CYCLE — $(TZ=Europe/Paris date '+%d/%m %H:%M:%S') ────────"
+
+            python main.py
+
+            # Sauvegarde de l'historique uniquement s'il a change
+            if ! git diff --quiet -- alerts_history.json; then
+              git add alerts_history.json
+              git commit -m "chore: mise a jour automatique de l'historique des alertes [skip ci]"
+              git pull --rebase --autostash origin "${{ github.ref_name }}" || true
+              git push origin "HEAD:${{ github.ref_name }}" || echo "⚠️ Push impossible, nouvelle tentative au prochain cycle."
+            fi
+
+            sleep $INTERVALLE
+          done
+
+          echo "✅ Fin de la boucle apres $CYCLE scans. Le prochain run planifie prend le relais."
