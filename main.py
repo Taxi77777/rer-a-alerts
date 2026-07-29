@@ -35,12 +35,26 @@ PARIS_TZ = pytz.timezone('Europe/Paris')
 # ---------------------------------------------------------------------------
 # 1. GARES SURVEILLÉES (branche A4 Marne-la-Vallée)
 # ---------------------------------------------------------------------------
+# Les 7 gares de Rachid, dans l'ordre de la ligne (+ Noisy-Champs, intercalée
+# entre Noisy-le-Grand et Noisiel, donc forcément sur son trajet).
 KEYWORDS_A4 = [
-    'torcy', 'bussy', 'val d\'europe', 'chessy',
-    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée',
-    # --- Ajout demandé : Noisy-le-Grand ---
+    # Noisy-le-Grand - Mont d'Est
     'noisy-le-grand', 'noisy le grand', 'mont d\'est', 'mont d est',
+    # Noisy-Champs
     'noisy-champs', 'noisy champs',
+    # Noisiel
+    'noisiel',
+    # Lognes
+    'lognes',
+    # Torcy
+    'torcy',
+    # Bussy-Saint-Georges
+    'bussy',
+    # Val d'Europe
+    'val d\'europe', 'val d europe',
+    # Chessy - Marne-la-Vallée
+    'chessy',
+    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée',
 ]
 
 # Mots-clés des autres branches du RER A (utilisés pour exclure les perturbations locales)
@@ -208,8 +222,15 @@ def make_request_with_retry(url, method="GET", headers=None, params=None, json_d
 
 
 def normalize(text):
-    """Minuscule + suppression des doubles espaces pour une détection fiable."""
-    return " ".join((text or "").lower().split())
+    """
+    Minuscule + apostrophes typographiques converties + espaces normalisés.
+    La RATP utilise parfois l'apostrophe courbe (’) : sans cette conversion,
+    "Val d’Europe" ne serait pas reconnu.
+    """
+    text = (text or "").lower()
+    for ch in ['’', 'ʼ', '‘', '`']:
+        text = text.replace(ch, "'")
+    return " ".join(text.split())
 
 
 def classify_severity(summary, description):
@@ -276,15 +297,20 @@ def detect_impacted_stations(summary, description):
     text = normalize(summary + " " + description)
     stations = []
 
+    # Dans l'ordre de la ligne, de Paris vers Chessy
     if any(kw in text for kw in ['noisy-le-grand', 'noisy le grand', 'mont d\'est', 'mont d est']):
         stations.append("Noisy-le-Grand - Mont d'Est")
     if any(kw in text for kw in ['noisy-champs', 'noisy champs']):
         stations.append("Noisy-Champs")
+    if 'noisiel' in text:
+        stations.append("Noisiel")
+    if 'lognes' in text:
+        stations.append("Lognes")
     if 'torcy' in text:
         stations.append("Torcy")
     if 'bussy' in text:
         stations.append("Bussy-Saint-Georges")
-    if 'val d\'europe' in text:
+    if any(kw in text for kw in ['val d\'europe', 'val d europe']):
         stations.append("Val d'Europe")
     if any(kw in text for kw in ['chessy', 'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 'mlv']):
         stations.append("Chessy - Marne-la-Vallée")
@@ -292,9 +318,9 @@ def detect_impacted_stations(summary, description):
     if stations:
         return stations
 
-    # Si aucune gare principale n'est citée, chercher les autres gares de la branche A4
-    if any(kw in text for kw in ['noisiel', 'lognes', 'neuilly-plaisance', 'bry-sur-marne', 'fontenay']):
-        return ["Branche Marne-la-Vallée (Noisiel / Lognes / Fontenay...)"]
+    # Autres gares de la branche A4, non surveillées nommément
+    if any(kw in text for kw in ['neuilly-plaisance', 'bry-sur-marne', 'fontenay', 'val de fontenay']):
+        return ["Branche Marne-la-Vallée (Bry / Fontenay...)"]
 
     # Si la branche Marne-la-Vallée est mentionnée globalement
     if any(kw in text for kw in ['a4', 'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 'mlv']):
