@@ -4,6 +4,12 @@
 """
 Système d'alertes de trafic RER A (Branche Marne-la-Vallée - A4)
 Développé pour Rachid - Hébergé gratuitement sur GitHub Actions.
+
+VERSION 2 :
+  - Filtre STRICT : uniquement les interruptions complètes de trafic
+    (+ les messages de reprise/rétablissement associés).
+  - Ajout de Noisy-le-Grand (Mont d'Est) et Noisy-Champs.
+  - Conçu pour être appelé en boucle toutes les 60 secondes par le workflow.
 """
 
 import os
@@ -11,7 +17,7 @@ import sys
 import json
 import time
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import requests
 
@@ -21,19 +27,94 @@ if sys.platform.startswith('win'):
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')
     except AttributeError:
-        pass # Anciennes versions de Python sans reconfigure
+        pass  # Anciennes versions de Python sans reconfigure
 
 # Fuseau horaire Paris obligatoire pour tous les calculs de dates et d'envoi
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
-# Mots-clés définissant uniquement les 4 gares de Rachid
+# ---------------------------------------------------------------------------
+# 1. GARES SURVEILLÉES (branche A4 Marne-la-Vallée)
+# ---------------------------------------------------------------------------
 KEYWORDS_A4 = [
-    'torcy', 'bussy', 'val d\'europe', 'chessy', 
-    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée'
+    'torcy', 'bussy', 'val d\'europe', 'chessy',
+    'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée',
+    # --- Ajout demandé : Noisy-le-Grand ---
+    'noisy-le-grand', 'noisy le grand', 'mont d\'est', 'mont d est',
+    'noisy-champs', 'noisy champs',
 ]
 
 # Mots-clés des autres branches du RER A (utilisés pour exclure les perturbations locales)
 KEYWORDS_EXCLUDE = ['boissy', 'cergy', 'poissy', 'saint-germain']
+
+# ---------------------------------------------------------------------------
+# 2. FILTRE DE GRAVITÉ : uniquement les ARRÊTS COMPLETS
+# ---------------------------------------------------------------------------
+# Expressions indiquant une interruption TOTALE de la circulation.
+# Les simples retards, ralentissements ou trains supprimés ne déclenchent RIEN.
+STOP_KEYWORDS = [
+    'trafic interrompu',
+    'trafic est interrompu',
+    'trafic totalement interrompu',
+    'interruption totale',
+    'interruption du trafic',
+    'interruption de trafic',
+    'interruption de la circulation',
+    'trafic suspendu',
+    'trafic est suspendu',
+    'suspension du trafic',
+    'trafic arrete', 'trafic arrêté',
+    'arret total', 'arrêt total',
+    'arret complet', 'arrêt complet',
+    'circulation interrompue',
+    'circulation est interrompue',
+    'aucun train',
+    'plus aucun train',
+    'ne circulent plus',
+    'ne circule plus',
+    'aucune circulation',
+    'gare fermee', 'gare fermée',
+    'gares fermees', 'gares fermées',
+    'station fermee', 'station fermée',
+    'fermeture de la gare',
+    'fermeture des gares',
+]
+
+# Expressions indiquant un retour à la normale (envoyées uniquement si une
+# interruption a été signalée récemment).
+RECOVERY_KEYWORDS = [
+    'trafic retabli', 'trafic rétabli',
+    'trafic est retabli', 'trafic est rétabli',
+    'circulation retablie', 'circulation rétablie',
+    'reprise du trafic',
+    'reprise progressive',
+    'le trafic reprend',
+    'retour a la normale', 'retour à la normale',
+    'trafic normal',
+    'trafic redevenu normal',
+    'fin de l\'incident',
+    'incident termine', 'incident terminé',
+    'incident resolu', 'incident résolu',
+]
+
+# Travaux programmés : annonces faites des jours/semaines à l'avance.
+# Mettre False si tu veux aussi être prévenu des fermetures pour travaux.
+IGNORE_PLANNED_WORKS = True
+PLANNED_KEYWORDS = [
+    'travaux',
+    'modernisation',
+    'chantier',
+    'operation de maintenance', 'opération de maintenance',
+    'ne circulera', 'ne circuleront',
+    'sera interrompu', 'seront interrompus',
+    'fermeture programmee', 'fermeture programmée',
+    'a partir du', 'à partir du',
+]
+
+# Fenêtre pendant laquelle un message de reprise est jugé pertinent
+# (après la dernière interruption effectivement notifiée).
+RECOVERY_WINDOW_HOURS = 6
+
+META_KEY = "__meta__"
 
 
 def escape_markdown(text):
@@ -110,11 +191,11 @@ def make_request_with_retry(url, method="GET", headers=None, params=None, json_d
                 response = requests.get(url, headers=headers, params=params, timeout=15)
             else:
                 response = requests.post(url, headers=headers, json=json_data, timeout=15)
-            
+
             # Gestion des erreurs temporaires côté serveur
             if response.status_code in [429, 500, 502, 503, 504]:
                 response.raise_for_status()
-                
+
             return response
         except requests.exceptions.RequestException as e:
             last_exception = e
@@ -122,39 +203,68 @@ def make_request_with_retry(url, method="GET", headers=None, params=None, json_d
                 sleep_time = backoff_factor ** attempt
                 print(f"⚠️ Erreur réseau ({e}). Tentative {attempt+1}/{retries} dans {sleep_time}s...")
                 time.sleep(sleep_time)
-                
+
     raise last_exception
+
+
+def normalize(text):
+    """Minuscule + suppression des doubles espaces pour une détection fiable."""
+    return " ".join((text or "").lower().split())
+
+
+def classify_severity(summary, description):
+    """
+    Détermine la nature du message :
+      - 'recovery' : reprise / rétablissement du trafic
+      - 'stop'     : interruption COMPLÈTE du trafic
+      - None       : tout le reste (retards, ralentissements, travaux, infos) -> ignoré
+    On teste la reprise en premier, car un message de reprise contient souvent
+    le mot "interruption" (ex : "reprise du trafic après interruption").
+    """
+    text = normalize(summary + " " + description)
+
+    if any(kw in text for kw in RECOVERY_KEYWORDS):
+        return 'recovery'
+
+    # Travaux annoncés à l'avance : ce n'est pas un incident en cours.
+    if IGNORE_PLANNED_WORKS and any(kw in text for kw in PLANNED_KEYWORDS):
+        return None
+
+    if any(kw in text for kw in STOP_KEYWORDS):
+        return 'stop'
+
+    return None
 
 
 def is_alert_relevant(summary, description):
     """
-    Logique de filtrage des alertes du RER A.
-    - Conserve si l'une des 4 gares de Rachid (Torcy, Bussy, Val d'Europe, Chessy) est mentionnée.
+    Logique de filtrage GÉOGRAPHIQUE des alertes du RER A.
+    - Conserve si l'une des gares surveillées est mentionnée.
     - Conserve si c'est une perturbation globale sur toute la ligne A.
-    - Exclut si c'est uniquement d'autres gares/branches (comme Noisy, Cergy, Boissy).
+    - Exclut si c'est uniquement d'autres gares/branches (Cergy, Boissy, Poissy...).
     """
-    text = (summary + " " + description).lower()
-    
-    # 1. Si le texte contient l'une de nos 4 gares, c'est pertinent
+    text = normalize(summary + " " + description)
+
+    # 1. Si le texte contient l'une de nos gares, c'est pertinent
     if any(kw in text for kw in KEYWORDS_A4):
         return True
-        
-    # 2. Si le texte mentionne d'autres branches ou d'autres gares de la ligne sans nos gares,
-    # on filtre. Mais on garde les messages globaux sur l'ensemble de la ligne.
+
+    # 2. Sinon, on ne garde que les messages globaux sur l'ensemble de la ligne
     text_clean = text.replace("malignea.fr", "").replace("ratp.fr", "")
-    
-    # Mots-clés pour perturbations globales sur toute la ligne
+
     global_keywords = [
-        'ensemble de la ligne', 
-        'toute la ligne', 
+        'ensemble de la ligne',
+        'toute la ligne',
         'toutes les gares',
         'ligne a est interrompu',
         'ligne a est perturbe',
-        'ligne a est ralenti'
+        'ligne a est ralenti',
+        'sur la ligne a',
+        'du rer a',
     ]
     if any(kw in text_clean for kw in global_keywords):
         return True
-        
+
     # Par défaut, exclure
     return False
 
@@ -163,9 +273,13 @@ def detect_impacted_stations(summary, description):
     """
     Détecte quelles gares surveillées par Rachid sont mentionnées dans le message.
     """
-    text = (summary + " " + description).lower()
+    text = normalize(summary + " " + description)
     stations = []
-    
+
+    if any(kw in text for kw in ['noisy-le-grand', 'noisy le grand', 'mont d\'est', 'mont d est']):
+        stations.append("Noisy-le-Grand - Mont d'Est")
+    if any(kw in text for kw in ['noisy-champs', 'noisy champs']):
+        stations.append("Noisy-Champs")
     if 'torcy' in text:
         stations.append("Torcy")
     if 'bussy' in text:
@@ -174,19 +288,18 @@ def detect_impacted_stations(summary, description):
         stations.append("Val d'Europe")
     if any(kw in text for kw in ['chessy', 'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 'mlv']):
         stations.append("Chessy - Marne-la-Vallée")
-        
+
     if stations:
         return stations
-        
+
     # Si aucune gare principale n'est citée, chercher les autres gares de la branche A4
-    if any(kw in text for kw in ['noisy', 'noisiel', 'lognes', 'neuilly-plaisance', 'bry-sur-marne', 'fontenay']):
-        stations.append("Branche Marne-la-Vallée (Noisy / Lognes / Fontenay...)")
-        return stations
-        
+    if any(kw in text for kw in ['noisiel', 'lognes', 'neuilly-plaisance', 'bry-sur-marne', 'fontenay']):
+        return ["Branche Marne-la-Vallée (Noisiel / Lognes / Fontenay...)"]
+
     # Si la branche Marne-la-Vallée est mentionnée globalement
     if any(kw in text for kw in ['a4', 'marne-la-vallée', 'marne la vallee', 'marne-la-vallee', 'marne la vallée', 'mlv']):
         return ["Branche Marne-la-Vallée (toutes les gares)"]
-        
+
     # Détection des autres branches ou gares spécifiques
     if any(kw in text for kw in ['cergy', 'poissy', 'maisons-laffitte', 'sartrouville', 'conflans', 'achères']):
         return ["Branche Cergy / Poissy"]
@@ -200,7 +313,7 @@ def detect_impacted_stations(summary, description):
         return ["Châtelet - Les Halles"]
     if 'gare de lyon' in text:
         return ["Gare de Lyon"]
-        
+
     # Par défaut, c'est global à l'ensemble du RER A
     return ["Ensemble de la ligne RER A"]
 
@@ -212,10 +325,10 @@ def is_in_sending_window():
     """
     now_paris = datetime.now(PARIS_TZ)
     current_time = now_paris.time()
-    
+
     start_send = datetime.strptime("05:00", "%H:%M").time()
     end_send = datetime.strptime("01:00", "%H:%M").time()
-    
+
     # Plage d'envoi traversant minuit (ex: 22h00 ou 00h30 sont valides, 02h00 ne l'est pas)
     if current_time >= start_send or current_time <= end_send:
         return True
@@ -230,44 +343,44 @@ def extract_disruptions_from_json(data):
     disruptions = []
     if not isinstance(data, dict):
         return disruptions
-        
+
     siri = data.get("Siri")
     if not isinstance(siri, dict):
         return disruptions
-        
+
     service_delivery = siri.get("ServiceDelivery")
     if not isinstance(service_delivery, dict):
         return disruptions
-        
+
     general_msg_deliveries = service_delivery.get("GeneralMessageDelivery")
     if not isinstance(general_msg_deliveries, list):
         return disruptions
-        
+
     for delivery in general_msg_deliveries:
         if not isinstance(delivery, dict):
             continue
         info_messages = delivery.get("InfoMessage")
         if not isinstance(info_messages, list):
             continue
-            
+
         for msg in info_messages:
             if not isinstance(msg, dict):
                 continue
-                
+
             item_id = msg.get("ItemIdentifier", "")
             recorded_at = msg.get("RecordedAtTime", "")
             valid_until = msg.get("ValidUntilTime", "")
-            
+
             content = msg.get("Content")
             if not isinstance(content, dict):
                 continue
-                
+
             pt_situation = content.get("PtSituationElement")
             if isinstance(pt_situation, dict):
                 # Clés uniques de situation
                 situation_num = pt_situation.get("SituationNumber", item_id)
                 creation_time = pt_situation.get("CreationTime", recorded_at)
-                
+
                 # Période de validité
                 validity_periods = pt_situation.get("ValidityPeriod", [])
                 start_time = None
@@ -280,16 +393,16 @@ def extract_disruptions_from_json(data):
                 elif isinstance(validity_periods, dict):
                     start_time = validity_periods.get("StartTime")
                     end_time = validity_periods.get("EndTime")
-                    
+
                 if not end_time:
                     end_time = valid_until
-                    
+
                 summary = extract_text(pt_situation.get("Summary"))
                 description = extract_text(pt_situation.get("Description"))
-                
+
                 if not summary and not description:
                     continue
-                    
+
                 disruptions.append({
                     "id": situation_num,
                     "summary": summary,
@@ -312,25 +425,25 @@ def extract_disruptions_from_json(data):
                         m_text = m_text_dict.get("value", "")
                     elif isinstance(m_text_dict, str):
                         m_text = m_text_dict
-                        
+
                     if m_type == "SHORT_MESSAGE":
                         short_msg = m_text
                     elif m_type == "TEXT_ONLY":
                         long_msg = m_text
-                
+
                 summary = short_msg or long_msg[:100]
                 description = long_msg or short_msg
-                
+
                 if not summary and not description:
                     continue
-                    
+
                 # Extraire l'ID du message
                 info_msg_id = msg.get("InfoMessageIdentifier")
                 if isinstance(info_msg_id, dict):
                     situation_num = info_msg_id.get("value", item_id)
                 else:
                     situation_num = str(info_msg_id) if info_msg_id else item_id
-                    
+
                 disruptions.append({
                     "id": situation_num,
                     "summary": summary,
@@ -339,7 +452,7 @@ def extract_disruptions_from_json(data):
                     "end_time": valid_until,
                     "creation_time": recorded_at
                 })
-            
+
     return disruptions
 
 
@@ -352,42 +465,49 @@ def calculate_disruption_hash(disruption):
     return hashlib.sha256(content_str.encode('utf-8')).hexdigest()
 
 
-def format_alert_message(disruption, is_update=False):
+def format_alert_message(disruption, kind='stop', is_update=False):
     """
-    Formate le message Telegram de maniere claire et percutante.
-    Le message doit immediatement informer Rachid de la situation sur ses gares.
+    Formate le message Telegram de manière claire et percutante.
+    kind = 'stop' (interruption totale) ou 'recovery' (reprise du trafic).
     """
     start_str = format_datetime_paris(disruption['start_time'])
     end_str = format_datetime_paris(disruption['end_time'])
 
-    # Titre court = resume de l'alerte
+    stations = detect_impacted_stations(disruption['summary'], disruption['description'])
+    stations_str = ", ".join(stations)
+
     title = disruption['summary'].strip() or "Perturbation RER A"
 
-    # Texte complet = description detaillee
     info_text = disruption['description'].strip() or title
     if len(info_text) > 600:
         info_text = info_text[:597] + "..."
 
-    # Echapper pour Markdown Telegram
     title_esc = escape_markdown(title)
     info_text_esc = escape_markdown(info_text)
+    stations_esc = escape_markdown(stations_str)
 
-    # En-tete : MAJ ou Nouvelle alerte
-    if is_update:
-        header = "\u26a0\ufe0f *MISE A JOUR \u2014 RER A*"
+    sep = "━" * 24
+
+    if kind == 'recovery':
+        header = "✅✅ *TRAFIC RÉTABLI — RER A* ✅✅"
+        icon = "✅"
+    elif is_update:
+        header = "⚠️ *MISE À JOUR — ARRÊT RER A*"
+        icon = "⛔"
     else:
-        header = "\U0001f6a8\U0001f6a8 *ALERTE RER A \u2014 VOS GARES* \U0001f6a8\U0001f6a8"
+        header = "\U0001f6a8\U0001f6a8 *ARRÊT TOTAL — RER A* \U0001f6a8\U0001f6a8"
+        icon = "⛔"
 
     message = (
         f"{header}\n"
-        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
-        f"\u26a0\ufe0f *{title_esc}*\n\n"
-        f"\U0001f4cb *Detail :*\n"
-        f"{info_text_esc}\n\n"
-        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        f"\u23f0 *Debut :* {start_str}\n"
-        f"\u2705 *Fin prevue :* {end_str}\n"
-        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        f"{sep}\n\n"
+        f"{icon} *{title_esc}*\n\n"
+        f"\U0001f4cd *Gares concernées :*\n{stations_esc}\n\n"
+        f"\U0001f4cb *Détail :*\n{info_text_esc}\n\n"
+        f"{sep}\n"
+        f"⏰ *Début :* {start_str}\n"
+        f"\U0001f3c1 *Fin prévue :* {end_str}\n"
+        f"{sep}\n"
         f"\U0001f517 https://www.ratp.fr/horaires/perturbations"
     )
     return message
@@ -401,7 +521,8 @@ def load_history(filepath):
         return {}
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
     except Exception as e:
         print(f"⚠️ Erreur chargement historique ({e}). Démarrage avec historique vierge.")
         return {}
@@ -425,36 +546,67 @@ def purge_old_alerts(history, retention_hours=48):
     """
     now = datetime.now(PARIS_TZ)
     keys_to_delete = []
-    
+
     for key, info in history.items():
+        if key == META_KEY or not isinstance(info, dict):
+            continue
         # Une alerte en cours n'est pas purgée
         if info.get("active", True):
             continue
-            
+
         last_seen_str = info.get("last_seen")
         if not last_seen_str:
             keys_to_delete.append(key)
             continue
-            
+
         last_seen = parse_iso_datetime(last_seen_str)
         if not last_seen:
             keys_to_delete.append(key)
             continue
-            
+
         if last_seen.tzinfo is None:
             last_seen = pytz.utc.localize(last_seen)
         last_seen_paris = last_seen.astimezone(PARIS_TZ)
-        
+
         diff = now - last_seen_paris
         if diff.total_seconds() > retention_hours * 3600:
+            print(f"🧹 Purge de l'alerte obsolète historisée (>48h inactive) : {key}")
             keys_to_delete.append(key)
-            
+
     for key in keys_to_delete:
-        print(f"🧹 Purge de l'alerte obsolète historisée (>48h inactive) : {key}")
         del history[key]
 
 
+def recovery_is_relevant(history):
+    """
+    Un message de reprise n'est envoyé que si une interruption a réellement été
+    notifiée dans les RECOVERY_WINDOW_HOURS dernières heures.
+    """
+    meta = history.get(META_KEY)
+    if not isinstance(meta, dict):
+        return False
+    last_stop = parse_iso_datetime(meta.get("last_stop_alert"))
+    if not last_stop:
+        return False
+    if last_stop.tzinfo is None:
+        last_stop = pytz.utc.localize(last_stop)
+    return datetime.now(PARIS_TZ) - last_stop.astimezone(PARIS_TZ) < timedelta(hours=RECOVERY_WINDOW_HOURS)
 
+
+def send_telegram(tg_token, tg_chat_id, msg_text):
+    """Envoie le message sur Telegram. Renvoie True si succès."""
+    tg_send_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+    payload = {
+        "chat_id": tg_chat_id,
+        "text": msg_text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    res = make_request_with_retry(tg_send_url, "POST", json_data=payload)
+    if res.status_code != 200:
+        print(f"⚠️ Échec Telegram (HTTP {res.status_code}) : {res.text[:200]}")
+        return False
+    return True
 
 
 def main():
@@ -467,15 +619,15 @@ def main():
     if not all([prim_key, tg_token, tg_chat_id]):
         print("❌ Configuration manquante. Renseignez PRIM_API_KEY, TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID.")
         sys.exit(1)
-        
+
     history_file = "alerts_history.json"
     history = load_history(history_file)
-    
+
     # 1. Requête API PRIM
     prim_url = "https://prim.iledefrance-mobilites.fr/marketplace/general-message"
     headers = {"apikey": prim_key}
     params = {"LineRef": "STIF:Line::C01742:"}
-    
+
     try:
         print("📡 Récupération des informations sur l'API PRIM...")
         response = make_request_with_retry(prim_url, "GET", headers=headers, params=params)
@@ -486,79 +638,94 @@ def main():
     except Exception as e:
         print(f"⚠️ Erreur connexion API PRIM ({e}). Sortie propre pour préserver la stabilité.")
         sys.exit(0)
-        
-    # 2. Extraction et filtrage
+
+    # 2. Extraction, filtrage géographique PUIS filtrage de gravité
     disruptions = extract_disruptions_from_json(data)
-    relevant_disruptions = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
-    
-    print(f"📊 {len(disruptions)} alerte(s) reçue(s) | {len(relevant_disruptions)} alerte(s) conservée(s) après filtrage.")
-    
+
+    geo_ok = [d for d in disruptions if is_alert_relevant(d['summary'], d['description'])]
+
+    relevant_disruptions = []
+    for d in geo_ok:
+        kind = classify_severity(d['summary'], d['description'])
+        if kind is None:
+            continue  # retard / ralentissement / travaux -> ignoré
+        d['kind'] = kind
+        relevant_disruptions.append(d)
+
+    n_stop = sum(1 for d in relevant_disruptions if d['kind'] == 'stop')
+    n_rec = sum(1 for d in relevant_disruptions if d['kind'] == 'recovery')
+    print(f"📊 {len(disruptions)} message(s) PRIM | {len(geo_ok)} sur mes gares | "
+          f"{n_stop} interruption(s) totale(s) + {n_rec} reprise(s) retenue(s).")
+
     # Désactiver temporairement toutes les alertes de l'historique
     for key in history.keys():
+        if key == META_KEY or not isinstance(history[key], dict):
+            continue
         history[key]["active"] = False
-        
+
     # 3. Détermination de la plage horaire d'envoi
     sending_allowed = is_in_sending_window()
     if not sending_allowed:
         print("🤫 Mode nuit actif (1h00 - 5h00 Europe/Paris) : pas d'envoi de messages.")
-        
+
     now_str = datetime.now(PARIS_TZ).isoformat()
-    
+
     # 4. Traitement des alertes
     for d in relevant_disruptions:
         d_id = d['id']
         d_hash = calculate_disruption_hash(d)
-        
+        kind = d['kind']
+
         is_new = d_id not in history
-        is_update = False
-        
-        if not is_new:
-            old_hash = history[d_id].get("hash")
-            if old_hash != d_hash:
-                is_update = True
-                
+        old_hash = history.get(d_id, {}).get("hash") if not is_new else None
+        is_update = (not is_new) and old_hash != d_hash
+
+        # Un message de reprise n'a d'intérêt que si une interruption a été signalée avant
+        if kind == 'recovery' and (is_new or is_update) and not recovery_is_relevant(history):
+            print(f"ℹ️ Reprise ignorée (aucune interruption notifiée récemment) : {d_id}")
+            history[d_id] = {"last_seen": now_str, "hash": d_hash, "active": True, "kind": kind}
+            continue
+
         # Enregistrer l'état courant de l'alerte
         history[d_id] = {
             "last_seen": now_str,
             "hash": d_hash,
-            "active": True
+            "active": True,
+            "kind": kind,
         }
-        
-        # Envoi Telegram
-        if is_new or is_update:
-            msg_text = format_alert_message(d, is_update=is_update)
-            
-            if sending_allowed:
-                try:
-                    print(f"📤 Envoi Telegram pour {d_id} (Nouveau={is_new}, MAJ={is_update})...")
-                    tg_send_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
-                    payload = {
-                        "chat_id": tg_chat_id,
-                        "text": msg_text,
-                        "parse_mode": "Markdown",
-                        "disable_web_page_preview": True
-                    }
-                    res = make_request_with_retry(tg_send_url, "POST", json_data=payload)
-                    if res.status_code != 200:
-                        print(f"⚠️ Échec Telegram (HTTP {res.status_code}). L'alerte sera réévaluée au prochain run.")
-                        # On restaure l'état précédent du hash/de l'existence pour forcer la réévaluation
-                        if is_new:
-                            del history[d_id]
-                        else:
-                            history[d_id]["hash"] = old_hash
-                except Exception as e:
-                    print(f"⚠️ Erreur envoi Telegram ({e}). Restauration pour prochain essai.")
-                    if is_new:
-                        del history[d_id]
-                    else:
-                        history[d_id]["hash"] = old_hash
+
+        if not (is_new or is_update):
+            continue
+
+        msg_text = format_alert_message(d, kind=kind, is_update=is_update)
+
+        if not sending_allowed:
+            action = "Nouvelle alerte" if is_new else "Mise à jour"
+            print(f"🤫 Enregistrement silencieux ({action}) de l'alerte {d_id} pendant la nuit.")
+            continue
+
+        try:
+            print(f"📤 Envoi Telegram pour {d_id} (type={kind}, Nouveau={is_new}, MAJ={is_update})...")
+            ok = send_telegram(tg_token, tg_chat_id, msg_text)
+        except Exception as e:
+            print(f"⚠️ Erreur envoi Telegram ({e}). Restauration pour prochain essai.")
+            ok = False
+
+        if ok:
+            if kind == 'stop':
+                meta = history.get(META_KEY) if isinstance(history.get(META_KEY), dict) else {}
+                meta["last_stop_alert"] = now_str
+                history[META_KEY] = meta
+        else:
+            # On restaure l'état précédent pour forcer une nouvelle tentative au prochain scan
+            if is_new:
+                history.pop(d_id, None)
             else:
-                action = "Nouvelle alerte" if is_new else "Mise à jour"
-                print(f"🤫 Enregistrement silencieux ({action}) de l'alerte {d_id} pendant la nuit.")
-                
+                history[d_id]["hash"] = old_hash
+
     # 5. Nettoyage des alertes inactives depuis plus de 48 heures
     purge_old_alerts(history)
-    
+
     # 6. Sauvegarde de l'historique mis à jour
     save_history(history_file, history)
     print("✅ Fin d'exécution propre.")
