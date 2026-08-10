@@ -6,7 +6,7 @@
     "kind": "stop"
   },
   "__meta__": {
-    "last_stop_alert": "2026-08-10T12:08:14.627184+02:00"
+    "last_stop_alert": "2026-08-10T12:27:59.332146+02:00"
   },
   "RATP-SIV:InfoMessage::MSG.IVC.4675330771836653470:LOC": {
     "last_seen": "2026-08-10T10:49:01.991034+02:00",
@@ -15,8 +15,8 @@
     "kind": "recovery"
   },
   "RATP-SIV:InfoMessage::MSG.IVC.3185095008660463051:LOC": {
-    "last_seen": "2026-08-10T12:26:57.093311+02:00",
-    "hash": "4434d77d4d8276bdffb3c62bac78bfafa2ff77ee95cc8082771dbd54209ada74",
+    "last_seen": "2026-08-10T12:27:59.332146+02:00",
+    "hash": "01bec2ecbcc199669ad5fd02a24fe6493cd47379fe529b205f0c47a4f802ee51",
     "active": true,
     "kind": "stop"
   }
