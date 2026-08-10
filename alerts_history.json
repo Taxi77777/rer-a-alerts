@@ -9,7 +9,7 @@
     "last_stop_alert": "2026-08-10T10:17:48.092727+02:00"
   },
   "RATP-SIV:InfoMessage::MSG.IVC.4675330771836653470:LOC": {
-    "last_seen": "2026-08-10T10:27:10.510819+02:00",
+    "last_seen": "2026-08-10T10:28:13.394674+02:00",
     "hash": "5bd970b9b95f7cb273ac9cf0772938849707a4fe4790ca8d9cb50470606e3b34",
     "active": true,
     "kind": "recovery"
