@@ -1,22 +1,17 @@
 name: Suivi Trafic RER A - Alertes Telegram
 
 # ---------------------------------------------------------------------------
-# POURQUOI CE FICHIER A CHANGE
+# SURVEILLANCE CONTINUE
 #
-# Le cron de GitHub Actions n'est PAS fiable : GitHub met les taches planifiees
-# dans une file d'attente "best effort" et les etrangle fortement.
-# Constat reel sur ce depot : un cron '*/5' ne se declenchait en pratique que
-# toutes les ~2 heures. Passer a '*/1' n'aurait rien change.
+# GitHub Actions traite les cron "best effort". Le workflow ne doit donc pas
+# demander un nouveau run toutes les 5 minutes alors que chaque run reste
+# actif plusieurs heures.
 #
-# Solution : au lieu de demander a GitHub de lancer 1 run par minute, on lance
-# UN SEUL run qui vit ~5h40 et qui interroge l'API PRIM toutes les 60 secondes
-# depuis l'interieur du job. Le cron ne sert plus qu'a relancer la boucle
-# quand elle se termine.
+# Solution : un run lance une boucle qui interroge PRIM toutes les 60 secondes.
+# Le cron ne sert qu'a relancer la boucle environ toutes les 6 heures.
 #
-# ATTENTION : cela consomme des minutes Actions en continu.
-# -> Le depot DOIT etre PUBLIC (minutes gratuites illimitees).
-#    Sur un depot prive, le quota gratuit est de 2 000 min/mois et serait
-#    epuise en ~1,5 jour.
+# Le depot est PUBLIC afin de conserver les avantages de GitHub Actions pour
+# cette execution longue.
 # ---------------------------------------------------------------------------
 
 on:
@@ -26,17 +21,16 @@ on:
     paths-ignore:
       - 'alerts_history.json'
   schedule:
-    # Relance la boucle des qu'un creneau se libere.
-    # Grace a "concurrency" ci-dessous, un seul run tourne a la fois et le
-    # suivant demarre immediatement a la fin du precedent.
-    - cron: '*/5 * * * *'
+    # Une nouvelle boucle environ toutes les 6 heures.
+    # La boucle elle-meme effectue les scans toutes les 60 secondes.
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write  # Requis pour sauvegarder alerts_history.json
 
-# Un seul run a la fois. Les runs planifies pendant la boucle attendent en
-# file d'attente et prennent le relais des que la boucle se termine.
+# Un seul run a la fois. Les executions planifiees ne peuvent pas lancer
+# plusieurs boucles concurrentes.
 concurrency:
   group: rer-a-alerts
   cancel-in-progress: false
@@ -75,8 +69,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set +e
-          # Duree totale de la boucle : 5h40 (20400 s), sous la limite de 6h d'un job.
-          DUREE=20400
+          # Duree totale : 5h30 (19800 s), laissant une marge avant le prochain cron.
+          DUREE=19800
           INTERVALLE=60
           DEBUT=$SECONDS
           CYCLE=0
