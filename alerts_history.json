@@ -9,9 +9,9 @@
     "kind": "recovery"
   },
   "RATP-SIV:InfoMessage::MSG.IVC.4948720383750984567:LOC": {
-    "last_seen": "2026-08-24T15:12:27.952166+02:00",
-    "hash": "f101d39c0e9b8de1a5c59c298eeed7a5c8ff3bd01a83813e95bb2ded90d2632b",
+    "last_seen": "2026-08-24T15:13:30.104030+02:00",
+    "hash": "e2814725df03a967ab0cf52837d0521b27d57e084543eb9f9a32d18b025dd2af",
     "active": true,
-    "kind": "stop"
+    "kind": "recovery"
   }
 }
