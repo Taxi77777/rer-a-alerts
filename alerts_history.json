@@ -1,5 +1,11 @@
 {
   "__meta__": {
     "last_stop_alert": "2026-08-24T14:51:43.717716+02:00"
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.4756227513049191819:LOC": {
+    "last_seen": "2026-08-26T17:07:40.777643+02:00",
+    "hash": "d4cb2bf7a2056d4dd9417d38ac6f2d992847d97fd02286660d0210bb0ed94a45",
+    "active": true,
+    "kind": "recovery"
   }
 }
