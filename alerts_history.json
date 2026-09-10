@@ -13,5 +13,11 @@
     "hash": "decf4060630d867922dfce5d6fa7e7fe8b60eb20a4bc7ce527f93f8f05b5c14d",
     "active": false,
     "kind": "recovery"
+  },
+  "RATP-SIV:InfoMessage::MSG.IVC.3548425128727963830:LOC": {
+    "last_seen": "2026-09-10T12:47:58.814620+02:00",
+    "hash": "a5ffaf31784287cd024379cf5f7a13cd120885ec93a0914f6bf365fe22032633",
+    "active": true,
+    "kind": "recovery"
   }
 }
